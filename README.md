@@ -82,7 +82,14 @@ increase the conversion rate of casual riders.**
 The dataset used for this case study is a "live" dataset (updated monthly) of 
 trips
 for the Divvy bike sharing company. 
-[Dataset link](https://divvy-tripdata.s3.amazonaws.com/index.html)
+[Dataset link](https://divvy-tripdata.s3.amazonaws.com/index.html).
+
+#### Dataset Licensing
+
+The data is produced under this license : 
+(https://ride.divvybikes.com/data-license-agreement)[https://ride.divvybikes.com/data-license-agreement]
+
+#### Exploring the data
 
 The dataset is composed of zip files containing csv files, with a separate 
 folder for MacOS files. I am asked to study the last 12 months of data, and 
@@ -140,10 +147,19 @@ sake of showcasing my SQL skills, I will develop a SQL query to do the exact
 same thing. 
 
 After looking into cursors to iterate over all datasets in my cyclistic, I
-realize that you can iterate over BigQuery tables using a wildcard operator.
-Here's the query to merge all of the 12 tables into a single dataset.
+realize that it is possible to iterate over BigQuery tables using a 
+wildcard operator. Here's the query to merge all of the 12 tables into a 
+single dataset.
 
 ```SQL
+CREATE TABLE IF NOT EXISTS cyclistic.trips
+OPTIONS(
+  description="Combined bike trip data from Cyclistic from May 2021 to Avril 2022"
+)
+AS
+  SELECT *
+  FROM `cyclistic-case-study-349908.cyclistic.trips_*`
+
 ```
 
 
