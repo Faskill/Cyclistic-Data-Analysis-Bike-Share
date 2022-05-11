@@ -249,7 +249,8 @@ FROM cyclistic.trips;
 
 | max_start_date |	min_start_date |	max_end_date | min_end_date |
 | ------------- |-------------| -----|-----|
-| 2022-04-30 23:59:54 UTC | 2021-05-01 00:00:11 UTC | 2022-05-02 00:35:01 UTC | 2021-05-01 00:03:26 UTC
+| 2022-04-30 23:59:54 UTC | 2021-05-01 00:00:11 UTC | 2022-05-02 00:35:01 UTC | 2021-05-01 00:03:26 UTC|
+
 
 The max_end_date is in May 2022, but it seems that datasets are ordered by 
 start_date and not end_date so this quick review shows that the data seems 
@@ -284,7 +285,7 @@ a ride length over a day :
 ```SQL
 SELECT COUNT(*)
 FROM cyclistic.trips
-WHERE DATETIME_DIFF(ended_at, started_at, HOUR) >= 24
+WHERE DATETIME_DIFF(ended_at, started_at, HOUR) >= 24;
 ```
 
 We get 4186 records. Those record can probably be removed.
@@ -295,10 +296,11 @@ as our DATETIME_DIFF argument to be more precise :
 ```SQL
 SELECT COUNT(*)
 FROM cyclistic.trips
-WHERE DATETIME_DIFF(ended_at, started_at, SECOND) < 0
+WHERE DATETIME_DIFF(ended_at, started_at, SECOND) < 0;
 ```
 
-The result is 140. We will be able to clean these records without impacting our data.
+The result is 140. We will be able to clean these records without impacting our 
+data.
 
 #### Ride id and rideable_type information
 
@@ -306,7 +308,7 @@ First, let's see what values are in the rideable_type field.
 
 ```SQL
 SELECT DISTINCT(rideable_type)
-FROM cyclistic.trips
+FROM cyclistic.trips;
 ```
 Here are our results :
 
@@ -331,18 +333,21 @@ SELECT
   MIN(LENGTH(ride_id)),
   COUNT(DISTINCT(LENGTH(ride_id)))
 
-FROM cyclistic.trips
+FROM cyclistic.trips;
 ```
 This query returns 16/16/1. We've just confirmed that all ride_id values are 
 unique 16 characters strings. 
 
 #### Summary
 
-In the **Prepare** phase, we merged the 12 tables and identified which fields have
-errors or missing values. We will clean the data during the **Process** phase.
-
+In the **Prepare** phase, we merged 12 tables and identified which fields have
+errors or missing values. We will now clean the data during the **Process** 
+phase.
 
 # 3. Process
+
+The first step of the Process phase is to backup our database before we apply
+any changes.
 
 # 4. Analyze
 
