@@ -288,7 +288,10 @@ FROM cyclistic.trips
 WHERE DATETIME_DIFF(ended_at, started_at, HOUR) >= 24;
 ```
 
-We get 4186 records. Those record can probably be removed.
+We get 4186 records. At this stage, it is difficult to say whether these records
+are wrong or are just people who forgot to bring back their bikes. More 
+information would be needed. These records will have to be excluded in any case
+if we want to analyze ride duration.
 
 Now let's count the number of rows with a ride length < 0, choosing seconds
 as our DATETIME_DIFF argument to be more precise :
@@ -323,7 +326,7 @@ the ride_id.
 
 After counting the disctinct values of ride_id : `SELECT COUNT(DISTINCT(ride_id))
 FROM cyclistic.trips` we arrive at the conclusion that there are one distinct 
-id per row. We just confirmed that there are no duplicated records!
+id per row. We just confirmed that there are no duplicated ids!
 
 Let's see if out ride_id values are the same length :
 
@@ -338,16 +341,156 @@ FROM cyclistic.trips;
 This query returns 16/16/1. We've just confirmed that all ride_id values are 
 unique 16 characters strings. 
 
+#### Checking for duplicate information
+
+We just verified that all ride_id are unique. But it is possible that ride_ids 
+are automatically generated for each row and that some duplication may exist in
+other rows.
+
+Let's check this by running a query :
+```SQL
+SELECT
+  rideable_type,
+  started_at,
+  ended_at,
+  start_station_name,
+  start_station_id,
+  end_station_name,
+  end_station_id,
+  start_lat,
+  start_lng,
+  end_lat,
+  end_lng,
+  member_casual,
+  COUNT(*)
+FROM `cyclistic-case-study-349908.cyclistic.trips` 
+GROUP BY
+  rideable_type,
+  started_at,
+  ended_at,
+  start_station_name,
+  start_station_id,
+  end_station_name,
+  end_station_id,
+  start_lat,
+  start_lng,
+  end_lat,
+  end_lng,
+  member_casual
+HAVING COUNT(*) > 1;
+```
+
+This query checks for duplicate values outside of the ride_id field.
+Turns out that there are in fact **456 duplicate fields**!
+
+![Duplicate query results](img/duplicate_data.jpg)
+
 #### Summary
 
 In the **Prepare** phase, we merged 12 tables and identified which fields have
-errors or missing values. We will now clean the data during the **Process** 
-phase.
+errors or missing values. We also identified 456 duplicate rows.
+We will now clean the data during the **Process** phase.
 
 # 3. Process
 
-The first step of the Process phase is to backup our database before we apply
-any changes.
+The first step of the Process phase is to **backup our database** before we 
+apply any changes. I will create a backup of the database in BigQuery.
+
+We will then delete dirty data. In a second part, we will try to recover
+missing station information.
+
+### Cleaning dirty data
+
+#### Removing Duplicates
+
+First of all, I will delete from the database duplicate rows outside of ride_id.
+Since the started_at and ended_at are timestamped, I assess that it is
+impossible that all the other fields are exactly the same without there being
+a data collection error.
+
+The query above confirmed that we had 456 duplicate values, but since we
+didn't select the ride_id values, it is not practical to find these rows and 
+delete them.
+
+We will just add max(id) in the above query to retrieve the ID of of one of
+the duplicate rows and delete this row. We also run the same query with 
+`HAVING COUNT(*) > 2` and figure out that one row is duplicated twice.
+
+Then we can store our duplicate table in a `TABLE` that we will then
+use to delete duplicates from our original database. (A Temporary table would be
+ideal but in BigQuery you would have to declare all column names, so it is
+much quicker to create a table and then delete it from my dataset.)
+
+```SQL
+CREATE TABLE IF NOT EXISTS cyclistic.duplicate_info
+  AS
+    SELECT
+    max(ride_id) AS max_id,
+    rideable_type,
+    started_at,
+    ended_at,
+    start_station_name,
+    start_station_id,
+    end_station_name,
+    end_station_id,
+    start_lat,
+    start_lng,
+    end_lat,
+    end_lng,
+    member_casual,
+    COUNT(*) AS duplicate_count
+  FROM `cyclistic-case-study-349908.cyclistic.trips` 
+  GROUP BY
+    rideable_type,
+    started_at,
+    ended_at,
+    start_station_name,
+    start_station_id,
+    end_station_name,
+    end_station_id,
+    start_lat,
+    start_lng,
+    end_lat,
+    end_lng,
+    member_casual
+  HAVING COUNT(*) > 1;
+```
+Then we can select by ID and remove the duplicates in our main table.
+
+```SQL
+DELETE FROM cyclistic.trips
+WHERE ride_id IN 
+(SELECT max_id FROM cyclistic.duplicate_info);
+```
+
+Now we still have a single duplicate row since one row has been duplicated
+twice. We run the same query as above to find the duplicate row and find 
+a max_id of `79451C756F030041`.
+
+We can now remove our last duplicate :
+
+```SQL
+DELETE FROM cyclistic.trips
+WHERE ride_id = '79451C756F030041';
+``` 
+
+The query is succesful. In total, we removed 457 duplicate rows from our data.
+
+#### Removing rows with a ride length <= 0 
+
+That is a pretty simple query :
+
+```SQL
+DELETE FROM cyclistic.trips
+WHERE DATETIME_DIFF(ended_at, started_at, SECOND) <= 0;
+``` 
+
+This removes 652 rows from our database. We will not delete ride lengths of over
+24 hours as we have no reason to be sure that this is dirty data. In real life,
+we would have asked stakeholders about these records.
+
+
+
 
 # 4. Analyze
 
