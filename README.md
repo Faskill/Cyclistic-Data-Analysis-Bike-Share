@@ -416,7 +416,7 @@ We will just add max(id) in the above query to retrieve the ID of of one of
 the duplicate rows and delete this row. We also run the same query with 
 `HAVING COUNT(*) > 2` and figure out that one row is duplicated twice.
 
-Then we can store our duplicate table in a `TABLE` that we will then
+Then we can store our duplicate table in a separate table that we will then
 use to delete duplicates from our original database. (A Temporary table would be
 ideal but in BigQuery you would have to declare all column names, so it is
 much quicker to create a table and then delete it from my dataset.)
@@ -475,6 +475,7 @@ WHERE ride_id = '79451C756F030041';
 ``` 
 
 The query is succesful. In total, we removed 457 duplicate rows from our data.
+We then delete the duplicate_info table that we created for cleaning purposes.
 
 #### Removing rows with a ride length <= 0 
 
@@ -489,9 +490,290 @@ This removes 652 rows from our database. We will not delete ride lengths of over
 24 hours as we have no reason to be sure that this is dirty data. In real life,
 we would have asked stakeholders about these records.
 
+## Cleaning station information
+
+#### Fixing incorrect names
+
+We have to run a complex query to retrieve station_ids with mismatched or
+missing names.
+
+```SQL
+SELECT 
+  start_station_id,
+  start_station_name,
+  COUNT(*) as num_trips
+
+FROM cyclistic.trips
+
+WHERE start_station_id IN 
+  (
+  SELECT start_station_id
+  FROM(
+    
+    SELECT 
+      DISTINCT(start_station_name) as distinct_name,
+      start_station_id,
+      COUNT(*) AS num_trips
+    FROM cyclistic.trips
+    WHERE start_station_id IS NOT NULL
+    GROUP BY 
+      distinct_name,
+      start_station_id
+    )
+  GROUP BY start_station_id
+  HAVING COUNT(*)>1
+)
+
+GROUP BY
+  start_station_id,
+  start_station_name
+
+ORDER BY 
+  start_station_id,
+  num_trips DESC;
+```
+
+This query does a lot of things. The innermost nested query retrieves a list of
+all distinct start_station names, as well as the number of trips.
+
+The second nested query retrieves a list of station_ids with 2 or more distinct
+names (which are not duplicated).
+
+The third query produces the following table (shortened):
+
+|start_station_id|start_station_name                    |num_trips|
+|----------------|--------------------------------------|---------|
+|13099           |Halsted St & 18th St (Temp)           |1830     |
+|13099           |Halsted St & 18th St                  |1804     |
+|13221           |Wood St & Milwaukee Ave               |16983    |
+|13221           |                                      |1        |
+|13300           |DuSable Lake Shore Dr & Monroe St     |25737    |
+|13300           |Lake Shore Dr & Monroe St             |18426    |
+|20215           |Hegewisch Metra Station               |88       |
+|20215           |                                      |1        |
+|...           |...      |...     |
+
+
+Now we can remove from this table, that we saved as `duplicate_station_name`,
+the names of station with the least number of trips. The most common station
+names will be the ones used in the analysis. In real life, it may be better
+to ask stakeholders what is the correct naming convention for each station.
+
+```SQL
+DELETE FROM cyclistic.duplicate_station_name
+WHERE num_trips IN 
+  ( 
+  SELECT MIN(num_trips)
+  FROM `cyclistic-case-study-349908.cyclistic.duplicate_station_name`
+  GROUP BY start_station_id
+  HAVING MIN(num_trips)!= MAX(num_trips)
+  );
+```
+
+We run this script twice (because one of the station_ids had 3 distinct names).
+Now we can replace in our main table all the duplicate (or missing) names.
+Before doing that, we backup our database in case the script doesn't work.
+
+```SQL
+UPDATE cyclistic.trips AS T
+SET start_station_name = D.start_station_name
+FROM (SELECT start_station_name, start_station_id FROM cyclistic.duplicate_station_name) AS D
+WHERE (T.start_station_name is NULL OR T.start_station_name != D.start_station_name) 
+	AND T.start_station_id = D.start_station_id;
+```
+
+We will also replace end station names based on the same reasoning :
+
+```SQL
+UPDATE cyclistic.trips AS T
+SET end_station_name = D.start_station_name
+FROM (SELECT start_station_name, start_station_id FROM cyclistic.duplicate_station_name) AS D
+WHERE (T.end_station_name is NULL OR T.end_station_name != D.start_station_name) AND T.end_station_id = D.start_station_id;
+```
+
+Now we verify that the first script returns an empty table and we are
+successful! We need to run the same script for end_station_names :
+
+```SQL
+SELECT 
+  end_station_id,
+  end_station_name,
+  COUNT(*) as num_trips
+
+FROM cyclistic.trips
+
+WHERE end_station_id IN 
+  (
+  SELECT end_station_id
+  FROM(
+    
+    SELECT 
+      DISTINCT(end_station_name) as distinct_name,
+      end_station_id,
+      COUNT(*) AS num_trips
+    FROM cyclistic.trips
+    WHERE end_station_id IS NOT NULL
+    GROUP BY 
+      distinct_name,
+      end_station_id
+    )
+  GROUP BY end_station_id
+  HAVING COUNT(*)>1
+)
+
+GROUP BY
+  end_station_id,
+  end_station_name
+
+ORDER BY 
+  end_station_id,
+  num_trips DESC;
+ ```
+
+The result is the following :
+
+|end_station_id|end_station_name                      |num_trips|
+|--------------|--------------------------------------|---------|
+|chargingstx1  |Bissell St & Armitage Ave*            |269      |
+|chargingstx1  |Bissell St & Armitage Ave - Charging  |2        |
+
+This station_id is not coherent with the others which are either numbers or 
+bar code type data.
+For thorougness' sake let's clean this data from our database.
+
+```SQL
+DELETE FROM cyclistic.trips
+WHERE end_station_id = 'chargingstx1' OR start_station_id = 'chargingstx1';
+```
+
+This deletes 511 rows from our database. By running the queries looking for 
+duplicate names, we find that they both return 0 rows!
+
+### Retrieving missing information
+
+Let's check if there are station_id with a station_name :
+
+```SQL
+SELECT COUNT(*)
+FROM cyclistic.trips
+WHERE (start_station_name IS NOT NULL AND start_station_id IS NULL)
+      OR (end_station_name IS NOT NULL AND end_station_id IS NULL);
+```
+
+This return 0, so we either have both station_name and station_id fields
+completed or they are both empty.
+
+Now let's count how many records we have with empty station information :
+
+```SQL
+SELECT COUNT(*)
+FROM cyclistic.trips
+WHERE start_station_name IS NULL
+      OR end_station_name IS NULL;
+```
+
+This returns **1.141.321 records**. That's a lot of missing data. The only
+field remaining that could help us recover this data is the coordinates
+information.
+
+The only way to efficiently search through coordinates is to merge latitude and
+longitude fields together. Let's update the trips database to merge coordinate
+information into a single field. First we need to back up our database and
+create 2 columns to store this information :
+
+```SQL
+ALTER TABLE cyclistic.trips
+AFF COLUMN IF NOT EXISTS start_loc GEOGRAPHY;
+
+ALTER TABLE cyclistic.trips
+ADD COLUMN IF NOT EXISTS end_loc GEOGRAPHY;
+```
+
+Now we can fill these columns by using the ST_GEOGPOINT on the coordinate 
+information :
+
+```SQL
+UPDATE cyclistic.trips
+SET start_coord = ST_GEOGPOINT(start_lng, start_lat)
+WHERE TRUE;
+
+UPDATE cyclistic.trips
+SET end_coord = CONCAT(end_lat,',',end_lng)
+WHERE TRUE;
+```
+
+Now, we need to check if the coordinates are consistent for each station_id. 
+We have to use CONCAT to compare the distinct coordinates because it is not
+possible to use DISTINCT with GEOGRAPHY values :
+
+```SQL
+SELECT 
+  start_station_id,
+  CONCAT(start_lat,',',start_lng) AS start_loc_text,
+  COUNT(*) as num_trips
+FROM cyclistic.trips
+
+WHERE start_station_id IS NOT NULL AND start_lat IS NOT NULL AND start_lng IS NOT NULL
+GROUP BY
+  start_station_id,
+  start_loc_text
+ORDER BY 
+  start_station_id,
+  num_trips DESC;
+```
+
+Just as before, we save this table as `station_coordinates` and assign the most 
+frequent coordinate to each id (which is actually a better query than the one
+previously ran :
+
+```SQL
+DELETE FROM cyclistic.station_coordinates
+WHERE CONCAT(num_trips, start_station_id) NOT IN 
+  ( 
+  SELECT CONCAT(MAX(num_trips), start_station_id)
+  FROM cyclistic.station_coordinates
+  GROUP BY start_station_id
+  );
+```
+
+This table returns 955 rows.
+
+**After looking at databases queries, we realize that some station_ids are in
+fact station names! We need to clear up those results as well!**
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+ Now we can generate a table that lists a single station_id / station_name pair.
+ I run this query only for start_station_id because with that amount of data
+ it is clear that all start_stations were also end_stations and vice versa :
+
+```SQL
+SELECT 
+      DISTINCT(start_station_name) as distinct_name,
+      start_station_id,
+      COUNT(*) AS num_trips
+    FROM cyclistic.trips
+    WHERE start_station_id IS NOT NULL
+    GROUP BY 
+      distinct_name,
+      start_station_id
+    ORDER BY distinct_name;
+ ```
+
+ We save the results of this query as `station_names` in our database.
+ 
 # 4. Analyze
 
 # 5. Share
