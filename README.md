@@ -723,8 +723,34 @@ ORDER BY
 ```
 
 Just as before, we save this table as `station_coordinates` and assign the most 
-frequent coordinate to each id (which is actually a better query than the one
-previously ran :
+frequent coordinate to each id. 
+
+#### Deleting records with wrong station IDs
+
+**After looking at databases queries, we realize that some station_ids are in
+fact station names! We need to clear up those results as well!**
+
+The easiest way to remove those records is to delete records that have spaces 
+within their ids. Let's count those records :
+
+```SQL
+SELECT COUNT(*)
+FROM cyclistic.trips
+WHERE start_station_id LIKE '% %' OR end_station_id LIKE '% %';
+```
+We have only 1394 records, let's delete them from our database.
+
+```SQL
+DELETE FROM cyclistic.trips
+WHERE start_station_id LIKE '% %' OR end_station_id LIKE '% %';
+```
+
+#### Generating a station_info table with all the information on each station
+
+Now we can generate again our `station_coordinates` database using the same 
+query as before. We use the concat function here to make sure that this database 
+will only contain distinct ids :
+
 
 ```SQL
 DELETE FROM cyclistic.station_coordinates
@@ -736,24 +762,23 @@ WHERE CONCAT(num_trips, start_station_id) NOT IN
   );
 ```
 
-This table returns 955 rows.
+This table returns 846 rows. 
 
-**After looking at databases queries, we realize that some station_ids are in
-fact station names! We need to clear up those results as well!**
+Now we just need to reconvert our geographical coordinates to GEOGRAPHY values.
+Let's first add a station_loc column with GEOGRAPHY values :
 
+```SQL
+ALTER TABLE cyclistic.station_coordinates
+ADD COLUMN IF NOT EXISTS station_loc GEOGRAPHY;
+```
 
+Now let's populate this column with the GEOGRAPHY coordinates of each station :
 
-
-
-
-
-
-
-
-
-
-
-
+```SQL
+UPDATE cyclistic.station_coordinates
+SET station_loc = ST_GEOGPOINT(CAST(SPLIT(start_loc_text,',')[OFFSET(1)] AS FLOAT64),CAST(SPLIT(start_loc_text,',')[ORDINAL(1)] AS FLOAT64))
+WHERE TRUE;
+```
 
  Now we can generate a table that lists a single station_id / station_name pair.
  I run this query only for start_station_id because with that amount of data
@@ -761,19 +786,62 @@ fact station names! We need to clear up those results as well!**
 
 ```SQL
 SELECT 
-      DISTINCT(start_station_name) as distinct_name,
-      start_station_id,
-      COUNT(*) AS num_trips
-    FROM cyclistic.trips
-    WHERE start_station_id IS NOT NULL
-    GROUP BY 
-      distinct_name,
-      start_station_id
-    ORDER BY distinct_name;
+  DISTINCT(start_station_name) as station_name,
+  start_station_id,
+  COUNT(*) AS num_trips
+FROM cyclistic.trips
+WHERE start_station_id IS NOT NULL
+GROUP BY 
+  station_name,
+  start_station_id
+ORDER BY station_name;
  ```
 
- We save the results of this query as `station_names` in our database.
- 
+ We save the results of this query as `station_names` in our database. 
+ This table also has 846 rows. Now let's merge the station_names and
+ station_coordinates into a single table called `station_info`
+ that will compile all the information we need on each station :
+
+```SQL
+CREATE TABLE IF NOT EXISTS cyclistic.station_info
+AS SELECT
+		start_station_id AS station_id,
+    station_name,
+    station_loc,
+    start_loc_text AS station_loc_text
+
+FROM
+  (SELECT 
+    *
+  FROM cyclistic.station_names AS names
+  JOIN
+    (SELECT 
+      start_station_id AS id,
+      station_loc,
+      start_loc_text
+    FROM cyclistic.station_coordinates
+      ) AS loc
+  ON names.start_station_id = loc.id
+  )
+ ORDER BY station_id;
+```
+
+Let's verify that our data doesn't have any blanks :
+
+```SQL
+SELECT COUNT(*)
+FROM cyclistic.station_info
+WHERE station_id IS NULL OR station_name IS NULL OR station_loc IS NULL or station_loc_text IS NULL;
+```
+
+Returns 0! Now we can use this table to try to fill the fields with valid
+coordinates but no station_id and station_name information.
+
+#### Filling missing station information
+
+
+
+
 # 4. Analyze
 
 # 5. Share
