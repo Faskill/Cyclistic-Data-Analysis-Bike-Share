@@ -837,8 +837,38 @@ WHERE station_id IS NULL OR station_name IS NULL OR station_loc IS NULL or stati
 Returns 0! Now we can use this table to try to fill the fields with valid
 coordinates but no station_id and station_name information.
 
-#### Filling missing station information
+### Filling missing station information
 
+My strategy for this task is the following :
+
+-   For perfect coordinate matches : Update the station_id and station_names
+		fields where the coordinates match perfectly with the station_info table
+-   For partial coordinate matches : Create a table with all partial matches 
+of the coordinates in the trips database with the station_loc_text field.
+-		For each match per ride_id, compare the distance between the 2 coordinates
+		and validate the match based on the closest distance if it is within 50m.
+
+
+### Perfect matches
+
+Let's count the number of perfect matches. Since we didn't aggregate location
+data in the `trips` database, we have to use CONCAT to match it to our
+station_loc_text :
+
+```SQL
+SELECT COUNT(*)
+FROM cyclistic.trips
+WHERE 
+  (start_station_id IS NULL AND CONCAT(start_lat,',',start_lng) IN (SELECT station_loc_text FROM cyclistic.station_info))
+  OR
+  (end_station_id IS NULL AND CONCAT(end_lat,',',end_lng) IN (SELECT station_loc_text FROM cyclistic.station_info));
+```
+
+Returns 357.200! So we will be able to easily fill 357.200 records. Let's 
+backup our trips database and update it :
+
+We need to write a complex query by creating loc_text and joining based on that
+field, then update based on that.
 
 
 
