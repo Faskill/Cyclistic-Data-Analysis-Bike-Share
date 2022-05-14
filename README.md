@@ -849,7 +849,7 @@ of the coordinates in the trips database with the station_loc_text field.
 		and validate the match based on the closest distance if it is within 50m.
 
 
-### Perfect matches
+#### Perfect matches
 
 Let's count the number of perfect matches. Since we didn't aggregate location
 data in the `trips` database, we have to use CONCAT to match it to our
@@ -865,10 +865,94 @@ WHERE
 ```
 
 Returns 357.200! So we will be able to easily fill 357.200 records. Let's 
-backup our trips database and update it :
+backup our trips database and update it.
 
-We need to write a complex query by creating loc_text and joining based on that
-field, then update based on that.
+First we need to CONCAT the start/end lat and long in order to have a single coordiantes field :
+
+```SQL
+ALTER TABLE cyclistic.trips
+ADD COLUMN IF NOT EXISTS 
+  start_loc_text STRING,
+ADD COLUMN IF NOT EXISTS end_loc_text STRING;
+
+
+UPDATE cyclistic.trips
+SET start_loc_text = CONCAT(start_lat,',',start_lng),
+    end_loc_text = CONCAT(end_lat,',',end_lng)
+WHERE TRUE;
+
+ALTER TABLE cyclistic.trips
+DROP COLUMN IF EXISTS start_lat,
+DROP COLUMN IF EXISTS start_lng,
+DROP COLUMN IF EXISTS end_lat,
+DROP COLUMN IF EXISTS end_lng;
+```
+Now let's join our main database with our station_info database :
+
+```SQL
+UPDATE cyclistic.trips AS A
+SET 
+  A.start_station_name = D.station_name,
+  A.start_station_id = D.station_id
+FROM 
+  (
+  SELECT 
+    T.ride_id,
+    I.station_name,
+    I.station_id
+  FROM cyclistic.trips AS T
+  JOIN (SELECT * FROM cyclistic.station_info) AS I
+  ON 
+    T.start_station_name IS NULL 
+    AND T.start_loc_text = I.station_loc_text
+  ) AS D
+WHERE A.ride_id = D.ride_id;
+```
+
+This query fails because there are multiple matches. Seems like we have duplicates in our station_info database. Let's delete the station_loc_text information of all stations with duplicate coordinates :
+
+```SQL
+UPDATE cyclistic.station_info
+SET station_loc_text = NULL
+WHERE station_loc_text IN
+  (SELECT station_loc_text FROM 
+    (
+    SELECT 
+      station_loc_text,
+      COUNT(*) AS num_duplicates
+    FROM cyclistic.station_info
+    GROUP BY
+      station_loc_text
+    HAVING num_duplicates > 1
+    )
+  )
+ ```
+
+ Now we can run the UPDATE query above. Let's write the same query for missing end_station information :
+
+```SQL
+UPDATE cyclistic.trips AS A
+SET 
+  A.end_station_name = D.station_name,
+  A.end_station_id = D.station_id
+FROM 
+  (
+  SELECT 
+    T.ride_id,
+    I.station_name,
+    I.station_id
+  FROM cyclistic.trips AS T
+  JOIN (SELECT * FROM cyclistic.station_info) AS I
+  ON 
+    T.end_station_name IS NULL 
+    AND T.end_loc_text = I.station_loc_text
+  ) AS D
+WHERE A.ride_id = D.ride_id;
+ ```
+Now that we updated perfect matches, but we still have **948616** rows with missing station information and valid coordinates.
+
+### Partial coordinate matches
+
 
 
 
