@@ -901,7 +901,7 @@ FROM
     I.station_name,
     I.station_id
   FROM cyclistic.trips AS T
-  JOIN (SELECT * FROM cyclistic.station_info) AS I
+  JOIN cyclistic.station_info AS I
   ON 
     T.start_station_name IS NULL 
     AND T.start_loc_text = I.station_loc_text
@@ -951,10 +951,58 @@ WHERE A.ride_id = D.ride_id;
  ```
 Now that we updated perfect matches, but we still have **948616** rows with missing station information and valid coordinates.
 
-### Partial coordinate matches
+#### Partial coordinate matches
 
+The best way to do that would be to base our results on the following table :
 
+```SQL
+SELECT
+  T.ride_id,
+  ST_DISTANCE(T.start_loc,I.station_loc) AS distance,
+  I.station_name,
+  I.station_id,
+  T.start_loc_text,
+  I.station_loc_text
+FROM cyclistic.trips AS T
+JOIN cyclistic.station_info AS I
+ON
+  T.start_station_name IS NULL
+  AND LEFT(I.station_loc_text, 5) = LEFT(T.start_loc_text, 5)
+  AND LEFT(SPLIT(T.start_loc_text,',')[OFFSET(1)],5) = LEFT(SPLIT(I.station_loc_text,',')[OFFSET(1)],5) 
+  AND ST_DISTANCE(T.start_loc,I.station_loc) < 100;
+ ```
+ 
+ The problem is that we realize by running a MAX(LENGTH(start_loc_text)) query that the coordiantes of the remaining stations with no station_id are only 2 digits, which represents an imprecision of over 1km in the coordinates! Matching them partially would give us wrong results and would bias our data in the favor of station who have 'round' coordinates. We decide not to use these imprecise results. In the analysis part, we will have to exclude the trips without station information if we want to analyze which stations are prefered by both kinds of riders.
 
+ Before analyzing the results, let's create 2 new rows : one with the distance travelled from start to finish stations, and another with the trip length in minutes.
+
+### Creating length_min and distance_m fields
+
+First let's back up our database. Then we will run the following queries :
+
+```SQL
+ALTER TABLE cyclistic.trips
+ADD COLUMN IF NOT EXISTS length_min FLOAT64,
+ADD COLUMN IF NOT EXISTS distance_m FLOAT64;
+
+UPDATE cyclistic.trips
+SET length_min = DATETIME_DIFF(ended_at, started_at, MINUTE)
+WHERE TRUE;
+
+UPDATE cyclistic.trips
+SET distance_m = ROUND(ST_DISTANCE(start_loc, end_loc),0)
+WHERE LENGTH(start_loc_text) >= 14 AND LENGTH(end_loc_text) >=14;
+ ```
+
+We choose not to calculate the distance of trips with imprecise start and end coordinates because it could bias our results, we choose at least 3 digits for our coordinate precision (=14 characters because we have negative longitudes). We ROUND our distance values because the ST_DISTANCE value returns 13 decimals and a precision up to 1m is sufficient here. This represents **4,587,796 rows** on our table.
+
+Let's see a quick recap of what our distance and length fields show :
+
+|max_length|min_length|avg_length        |max_distance|min_distance|avg_distance      |
+|----------|----------|------------------|------------|------------|------------------|
+|55944.0   |0.0       |20.097648195342565|33800.0     |0.0         |2107.3670278713585|
+
+That's good for now, we have an average trip length of 20 minutes and an average distance of 2107m! Let's keep in mind that the distance mentionned here are not the distance travelled by users, but only the distance between start and end stations. It is of course possible that users just tour the city and bring back their bikes at the same start station.
 
 # 4. Analyze
 
