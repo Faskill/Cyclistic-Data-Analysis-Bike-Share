@@ -1006,6 +1006,10 @@ That's good for now, we have an average trip length of 20 minutes and an average
 
 # 4. Analyze
 
+We will accomplish the analyze phase of the case study by utilizing R. Let's import our 'trips' database to R.
+
+Fir
+
 # 5. Share
 
 # 6. Act
