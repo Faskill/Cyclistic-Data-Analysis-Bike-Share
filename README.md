@@ -909,7 +909,9 @@ FROM
 WHERE A.ride_id = D.ride_id;
 ```
 
-This query fails because there are multiple matches. Seems like we have duplicates in our station_info database. Let's delete the station_loc_text information of all stations with duplicate coordinates :
+This query fails because there are multiple matches. Seems like we have 
+duplicates in our station_info database. Let's delete the station_loc_text 
+information of all stations with duplicate coordinates :
 
 ```SQL
 UPDATE cyclistic.station_info
@@ -928,7 +930,8 @@ WHERE station_loc_text IN
   )
  ```
 
- Now we can run the UPDATE query above. Let's write the same query for missing end_station information :
+ Now we can run the UPDATE query above. Let's write the same query for missing 
+ end_station information :
 
 ```SQL
 UPDATE cyclistic.trips AS A
@@ -949,7 +952,8 @@ FROM
   ) AS D
 WHERE A.ride_id = D.ride_id;
  ```
-Now that we updated perfect matches, but we still have **948616** rows with missing station information and valid coordinates.
+Now that we updated perfect matches, but we still have **948616** rows with 
+missing station information and valid coordinates.
 
 #### Partial coordinate matches
 
@@ -972,9 +976,18 @@ ON
   AND ST_DISTANCE(T.start_loc,I.station_loc) < 100;
  ```
  
- The problem is that we realize by running a MAX(LENGTH(start_loc_text)) query that the coordiantes of the remaining stations with no station_id are only 2 digits, which represents an imprecision of over 1km in the coordinates! Matching them partially would give us wrong results and would bias our data in the favor of station who have 'round' coordinates. We decide not to use these imprecise results. In the analysis part, we will have to exclude the trips without station information if we want to analyze which stations are prefered by both kinds of riders.
+ The problem is that we realize by running a MAX(LENGTH(start_loc_text)) query 
+ that the coordiantes of the remaining stations with no station_id are only 
+ 2 digits, which represents an imprecision of over 1km in the coordinates! 
+ Matching them partially would give us wrong results and would bias our data 
+ in the favor of stations which have 'round' coordinates. We decide not to use 
+ these imprecise results. In the analysis part, we will have to exclude the 
+ trips without station information if we want to analyze which stations are 
+ prefered by both kinds of riders.
 
- Before analyzing the results, let's create 2 new rows : one with the distance travelled from start to finish stations, and another with the trip length in minutes.
+ Before analyzing the results, let's create 2 new rows : one with the distance 
+ travelled from start to finish stations, and another with the trip length in 
+ minutes.
 
 ### Creating length_min and distance_m fields
 
@@ -994,7 +1007,12 @@ SET distance_m = ROUND(ST_DISTANCE(start_loc, end_loc),0)
 WHERE LENGTH(start_loc_text) >= 14 AND LENGTH(end_loc_text) >=14;
  ```
 
-We choose not to calculate the distance of trips with imprecise start and end coordinates because it could bias our results, we choose at least 3 digits for our coordinate precision (=14 characters because we have negative longitudes). We ROUND our distance values because the ST_DISTANCE value returns 13 decimals and a precision up to 1m is sufficient here. This represents **4,587,796 rows** on our table.
+We choose not to calculate the distance of trips with imprecise start and end 
+coordinates because it could bias our results, we choose at least 3 digits 
+for our coordinate precision (=14 characters because we have negative longitudes).
+We ROUND our distance values because the ST_DISTANCE value returns 13 decimals
+and a precision up to 1m is sufficient here. This represents **4,587,796 rows**
+on our table.
 
 Let's see a quick recap of what our distance and length fields show :
 
@@ -1002,14 +1020,194 @@ Let's see a quick recap of what our distance and length fields show :
 |----------|----------|------------------|------------|------------|------------------|
 |55944.0   |0.0       |20.097648195342565|33800.0     |0.0         |2107.3670278713585|
 
-That's good for now, we have an average trip length of 20 minutes and an average distance of 2107m! Let's keep in mind that the distance mentionned here are not the distance travelled by users, but only the distance between start and end stations. It is of course possible that users just tour the city and bring back their bikes at the same start station.
+That's good for now, we have an average trip length of 20 minutes and an average
+distance of 2107m! Let's keep in mind that the distance mentionned here are 
+not the distance travelled by users, but only the distance between start and 
+end stations. It is of course possible that users just tour the city and return
+their bikes at the same start station.
 
 # 4. Analyze
 
-We will accomplish the analyze phase of the case study by utilizing R. Let's import our 'trips' database to R.
+We will accomplish the analyze phase of the case study by utilizing R. 
+Let's import our 'trips' database to R.
 
-Fir
+First we load and install the required packages. I also change my locale to 
+English (as I am French) to be able to handle months in English :
 
+```R
+install.packages("bigrquery")
+install.packages("tidyverse")
+install.packages("wk")
+install.packages("lubridate")
+
+library(bigrquery)
+library(tidyverse)
+library(wk)
+library(lubridate)
+Sys.setlocale("LC_TIME", "English")
+ ```
+
+Then we set up our connection to Bigquery and assign it to the "trips" dataframe.
+This dataframe will not be collected (i.e. it is not stored on our computer)
+but we will have do manually collect this data using collect() every time
+we want to access it.
+
+```R
+con <- dbConnect(
+  bigrquery::bigquery(),
+  project = "cyclistic-case-study-349908",
+  dataset = "cyclistic",
+  billing = "cyclistic-case-study-349908"
+)
+
+trips <- tbl(con,"trips")
+glimpse(trips)
+ ```
+### Number of monthly rides per user type
+
+First we download a subset of our data in order to be able to quickly run queries
+on it without needing BigQuery access. 
+
+```R
+length_info <-
+  trips %>% 
+  select(member_casual,started_at,length_min,rideable_type) %>% 
+  collect() %>% 
+  mutate(month_year = factor(format(started_at, "%b-%y"), levels = 
+           c("May-21","Jun-21","Jul-21","Aug-21","Sep-21","Oct-21","Nov-21","Dec-21","Jan-22","Feb-22","Mar-22","Apr-22")), 
+  			Date = date(started_at))
+ ```
+
+In the mutate function, we add a Date and month-year column that we extract from the
+started_at column, and we use the levels argument to order the months and years
+in chronological order.
+
+Now we can use this table to draw a graph of rides per day for each Member type :
+
+```R
+length_info %>% 
+  group_by(Date,member_casual) %>% 
+  summarize(rides=n()) %>% 
+  ggplot(aes(x=Date,y=rides,group=member_casual,color=member_casual)) + geom_point() %>% 
+  labs(color="Member Type", x="Date", y="Number of Rides") + scale_y_continuous(labels = scales::comma)+ 
+  geom_smooth() + scale_x_date(date_labels="%b-%y",date_breaks  ="1 month",expand = c(0,0))+
+  ggtitle("Rides per day for each Member Type")
+ ```
+
+ This gives us the following graph :
+
+  ![Number of rides per day chart](img/Rides_per_day.jpeg)
+
+ We come to the conclusion that there are much more casual members during the
+ summer than during the winter where annual members outnumber casual members.
+ 
+
+### Analyzing length data
+
+
+
+Now we can create our Length per month graph :
+
+```R
+length_info %>% 
+  filter(length_min<1440) %>% 
+  group_by(month_year,member_casual) %>% 
+  summarise(average_length = mean(length_min)) %>% 
+  ggplot() + geom_col(aes(x=month_year,y=average_length,fill=member_casual),position = 'dodge') + 
+  labs(fill="Member Type", x="Month", y="Ride Length")
+ ```
+We get the following chart, that was produces by removing trip lengths of
+over 24 hours : 
+
+ ![Length per month chart](img/Length_per_month.jpeg)
+
+ It is clear that Casual members ride much longer than annual members. The peak
+ seems to be in Spring, although analysis of several years would be needed to 
+ validate this hypothesis.
+
+### Analyzing the distance between start and end stations
+
+Just as the length previously analyzed, we will see if there's a difference
+between the average distance between the start and end stations used by our
+2 groups. 
+First let's create a subset of our data with the interesting information :
+
+```R
+distance_info <-
+  trips %>% 
+  select(member_casual,started_at,distance_m,rideable_type) %>% 
+  collect() %>% 
+  mutate(month_year = factor(format(started_at, "%b-%y"), levels = 
+                               c("May-21","Jun-21","Jul-21","Aug-21","Sep-21","Oct-21","Nov-21","Dec-21","Jan-22","Feb-22","Mar-22","Apr-22")))
+ ```
+
+ Now we will create the same graph but for our distance between start and end
+ stations :
+
+```R
+distance_info %>% 
+  filter(distance_m >= 0) %>% 
+  group_by(month_year,member_casual) %>% 
+  summarise(average_dist = mean(distance_m)) %>% 
+  ggplot() + geom_col(aes(x=month_year,y=average_dist,fill=member_casual),position = 'dodge') + 
+  labs(fill="Member Type", x="Month", y="Distance from start to end station")
+```
+
+Here is our result :
+
+ ![Distance per month chart](img/Dist_per_month.jpeg)
+
+It seems that the distance is slightly higher for casual members, although the
+spread is not very significant.
+
+### Bike types used by both categories of user
+
+We can use a pie chart to represent what bike types our 2 groups use :
+
+```R
+distance_info %>% 
+  select(member_casual, month_year, rideable_type) %>% 
+  group_by(rideable_type,member_casual) %>% 
+  summarise(bike_count = n()) %>% 
+  mutate(bike_count = ifelse (member_casual == "member", 100*bike_count/tally(distance_info, member_casual == "member")[[1,1]],
+                              100*bike_count/tally(distance_info,member_casual == "casual")[[1,1]])) %>% 
+  ggplot() + geom_bar(aes(x="",y=bike_count,fill=rideable_type),stat="identity", width=1) +
+  coord_polar("y", start=0) + facet_wrap(~member_casual)
+```
+
+We use the geom_bar and coor_polar functions to create a pie chart instead of 
+using R's built in pie function in order to be able to create 2 facets.
+Here are our resuls (the appearance of the pie chart will need to be improved
+but for now we only want the results) :
+
+ ![Bike type used per user type](img/Bike_type_pie.jpeg)
+
+We discover that only Casual members use a category of bikes called docked_bike.
+After further analysis and searching through Divvy's website, it appears that
+docked_bikes are a type of electric bikes. We can thus aggregate electric_bike
+and docked_bikes in the same category for our pie chart :
+
+```R
+distance_info %>% 
+  select(member_casual, month_year, rideable_type) %>% 
+  group_by(rideable_type,member_casual) %>% 
+  summarise(bike_count = n()) %>% 
+  mutate(bike_count = ifelse (member_casual == "member", 100*bike_count/tally(distance_info, member_casual == "member")[[1,1]],
+                              100*bike_count/tally(distance_info,member_casual == "casual")[[1,1]])) %>% 
+  mutate(rideable_type = ifelse(rideable_type == "docked_bike", "electric_bike", rideable_type)) %>% 
+  ggplot() + geom_bar(aes(x="",y=bike_count,fill=rideable_type),stat="identity", width=1) +
+  coord_polar("y", start=0) + facet_wrap(~member_casual)
+```
+
+Here are our results : 
+
+ ![Bike type used per user type](img/Bike_types_undocked.jpeg)
+
+It appears that **Casual members use electric bikes for more than 50 percent of
+their usage**.
+
+```R
+```
 # 5. Share
 
 # 6. Act
