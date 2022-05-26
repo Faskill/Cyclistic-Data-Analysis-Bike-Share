@@ -1063,7 +1063,7 @@ con <- dbConnect(
 trips <- tbl(con,"trips")
 glimpse(trips)
  ```
-### Number of monthly rides per user type
+### 4.1 Number of monthly rides per user type
 
 First we download a subset of our data in order to be able to quickly run queries
 on it without needing BigQuery access. 
@@ -1100,13 +1100,11 @@ length_info %>%
 
  We come to the conclusion that there are much more casual members during the
  summer than during the winter where annual members outnumber casual members.
- 
-
-### Analyzing length data
 
 
+### 4.2 Analyzing length data
 
-Now we can create our Length per month graph :
+We will use the same table to compute length per month graph :
 
 ```R
 length_info %>% 
@@ -1116,7 +1114,7 @@ length_info %>%
   ggplot() + geom_col(aes(x=month_year,y=average_length,fill=member_casual),position = 'dodge') + 
   labs(fill="Member Type", x="Month", y="Ride Length")
  ```
-We get the following chart, that was produces by removing trip lengths of
+We get the following chart, that was produced by removing trip lengths of
 over 24 hours : 
 
  ![Length per month chart](img/Length_per_month.jpeg)
@@ -1125,7 +1123,7 @@ over 24 hours :
  seems to be in Spring, although analysis of several years would be needed to 
  validate this hypothesis.
 
-### Analyzing the distance between start and end stations
+### 4.3 Analyzing the distance between start and end stations
 
 Just as the length previously analyzed, we will see if there's a difference
 between the average distance between the start and end stations used by our
@@ -1160,7 +1158,7 @@ Here is our result :
 It seems that the distance is slightly higher for casual members, although the
 spread is not very significant.
 
-### Bike types used by both categories of user
+### 4.4 Bike types used by both categories of user
 
 We can use a pie chart to represent what bike types our 2 groups use :
 
@@ -1206,9 +1204,241 @@ Here are our results :
 It appears that **Casual members use electric bikes for more than 50 percent of
 their usage**.
 
+### 4.5 Analyzing station usage
+
+#### 4.5.1 Top 5 stations for each user groups
+
+Now we will see what are the top stations of each member type. For speed's sake,
+we will only consider the top 5 stations for each member type here but in
+reality it may be necessary to study the top 10 or 20 stations.
+
+First let's download a subset of our dataset that we will call station_db :
+
 ```R
+station_db <-
+  trips %>% 
+  select(member_casual,started_at,start_station_name,end_station_name,rideable_type) %>% 
+  filter(!is.na(start_station_name)) %>% 
+  collect() %>% 
+  mutate(month_year = factor(format(started_at, "%b-%y"), levels = 
+                               c("May-21","Jun-21","Jul-21","Aug-21","Sep-21","Oct-21","Nov-21","Dec-21","Jan-22","Feb-22","Mar-22","Apr-22")))
+
 ```
+
+We will only study start stations here as we've shown in the Process phase that
+there are no significant differences between start and end stations counts.
+We thus remove rows with empty start_station information. We also create a
+labeller to make the graphs we will plot more readable :
+
+```R
+member_names <- c(
+  `casual` = "Casual",
+  `member` = "Annual Member"
+)
+```
+
+Now let's analyze our data to find out which are the top stations for each
+member type :
+
+```R
+station_db %>% 
+  select(member_casual,month_year,start_station_name) %>%
+  group_by(member_casual,start_station_name) %>% 
+  summarize(ride_count = n()) %>%
+  mutate(ride_perc = ifelse(member_casual == "member", 100*ride_count/tally(station_db,member_casual == "member")[[1,1]],
+        100*ride_count/tally(station_db,member_casual == "casual")[[1,1]])) %>% 
+  arrange(member_casual, desc(ride_perc)) %>% 
+  group_by(member_casual) %>% 
+  mutate(rank = rank(-ride_perc)) %>% 
+  filter(rank<=5) %>% 
+  ggplot(aes(x=start_station_name, y=ride_perc, fill=member_casual)) + geom_col() +
+  facet_wrap(~member_casual,scales = "free_x", labeller = as_labeller(member_names)) + 
+  aes(stringr::str_wrap(start_station_name, 15), ride_perc) + xlab(NULL) +
+  ylab("Percentage of total rides") + ggtitle("Top 5 stations") + labs(fill="Member type")
+```
+
+First we calculate a ride_count for each member_casual - start_station_name duo.
+Then we translate this amount to a percentage of the total number of rides for
+each member type (ride_perc). We then attribute ranks to each of these columns 
+(we have to rank by -ride_perc to have an ascending order). 
+
+This gives us the following graph :
+
+![Top 5 stations](img/Top_5_stations.jpeg)
+
+We can see right away that different member types do not have the same top
+stations. Also, it is interesting to note that **the traffic from casual
+members is concentrated in fewer stations than annual members** as the 
+percentage from top stations is higher.
+
+#### 4.5.2 Creating a map of rides per station
+
+The easiest way to represent the station data is by using a map to see the
+most relevant trends. To do this, we will begin by creating a subset with only
+the relevant data :
+
+```R
+station_map <-
+  trips %>% 
+  select(member_casual,start_station_id) %>% 
+  filter(!is.na(start_station_name)) %>% 
+  filter(!is.na(start_loc_text)) %>%
+  collect () %>% 
+  mutate(month_year = factor(format(started_at, "%b-%y"), levels = 
+                               c("May-21","Jun-21","Jul-21","Aug-21","Sep-21","Oct-21","Nov-21","Dec-21","Jan-22","Feb-22","Mar-22","Apr-22")))
+
+```
+
+Now we created during the process phase a station_info table with all the
+relevant information about each station. The problem is that the coordinates
+are present within a GEOGRAPHY type data that will be complicated to use in R.
+So first we need to modify the station_info table to add Longitude and Latitude
+data :
+
+```SQL
+ALTER TABLE cyclistic.station_info
+ADD COLUMN IF NOT EXISTS Latitude FLOAT64,
+ADD COLUMN IF NOT EXISTS Longitude FLOAT64;
+```
+
+Now it appears that some station_loc_text field were not correctly entered.
+Let's update this field from the GEOGRAPHY data as well as the Latitude and
+Longitude fields :
+
+```SQL
+UPDATE cyclistic.station_info
+SET station_loc_text = CONCAT(ST_Y(station_loc),",",ST_X(station_loc)),
+    Latitude = CAST(ST_Y(station_loc) AS FLOAT64),
+    Longitude = CAST(ST_X(station_loc) AS FLOAT64)
+WHERE TRUE; 
+```
+
+Now we can import this table in R, and create a summary by month, member_type 
+and station showing the number of rides from our station_map table :
+
+```R
+station_info <- tbl(con,"station_info") %>% collect()
+
+map_export <-
+  station_map %>% 
+    select(member_casual,start_station_id, month_year) %>% 
+    group_by (member_casual,start_station_id,month_year) %>% 
+    summarize(rides = n())
+```
+We just need to join those 2 tables to have all the information we need for the
+table :
+
+```R
+map_final <-
+  map_export %>%
+  setNames(c("Member type","station_id","month_year","rides")) %>% 
+  full_join(station_info,by="station_id")
+```
+
+Now we have a table with the following fields :
+
+-  Member type
+-  station_id 
+-  month_year 
+-  rides 
+-  station_name                 
+-  station_loc                
+-  station_loc_text                     
+-  Latitude 
+-  Longitude
+
+We can import this table into tableau, change the type of data for our
+month_year column from String to Date, and browse our results. All the Tableau
+data is publicly available on my profile 
+(https://public.tableau.com/app/profile/octave.antoni), but I extracted the most
+relevant information so they can be directly browsed :
+
+![Map of Cyclistic Rides Per Member Type](img/Map_of_Cyclistic_Rides_Per_Member_Type.png)
+
+We can see that the traffic is mostly concentrated around the Downtown and Hyde
+Park areas. Let's zoom into those areas :
+
+![Close up Downtown Chicago](img/Close_up_Downtown_Chicago.png)
+
+As we can see, the blue dots (casual member traffic) are much wider around the
+Harbor and Lakeside areas while annual members are more represented in the
+Western part of Chicago. **Concentrating our marketing strategy on users located
+in the vicinity of the Lake seems to be a good strategy to mainly target casual
+members.**
+
+Let's look at a close up on the Hyde Park Area now :
+
+![Close up Hyde Park Area](img/Close_up_Hyde_Park.png)
+
+The same tendancy is visible on this area : casual members are mostly present
+near the lake side areas while the western areas are mostly used by Annual
+members. 
+
+#### 4.5.3 Monthly evolution of our rides
+
+Now that we have all this data, it would also be interesting to see how the data
+evolves over a year. So I create a page in Tableau and an auto-scrolling
+animation in order to show the monthly evolution of our ride numbers :
+
+![Monthly evolution of rides](img/Monthly_evolution.gif)
+
+We can clearly see that there are very high seasonal peaks of casual members 
+from May to September-October and that for the rest of the year most of the
+rides are done by annual members.
+
+**The best period to target casual members seem to be from May to October**. 
+Although more data collection would be needed to validate this hypothesis, **it
+is likely that the months of May, September and October are ideal because
+there is probably less tourists that won't be good targets for our marketing
+strategy.**
+
+#### 4.5.4 Top stations for both categories
+
+Now one of the way we could target our casual members is to target the casual
+members that use the same stations as annual members, which are probably
+stations more likely to be used by Chicagoans that we would like to convert
+to an annual membership.
+
+To do that, we will create a table that ranks each station by member_type, and
+only selects stations that are top 30 for both kinds of member_types. We will
+then join this table with our station_info table in order to have the relevant
+station information for display :
+
+```R
+ranked_map <-
+  map_final %>% 
+  group_by(`Member type`,station_id) %>% 
+  summarise(rides = sum(rides)) %>% 
+  arrange(`Member type`, desc(rides)) %>% 
+  group_by(`Member type`) %>% 
+  mutate(rank = rank(-rides)) %>% 
+  filter(rank<=30) %>% 
+  group_by(station_id) %>% 
+  filter(n()>1) %>% 
+  summarise(total_rides = sum(rides), average_rank = mean(rank)) %>% 
+  left_join(station_info,by="station_id") %>% 
+  arrange(average_rank)
+
+write.csv(ranked_heatmap,"ranked_heatmap.csv")
+```
+
+Now we can analyze this data directly on Tableau (Cyclistic Top Stations viz on
+my [Tableau Profile](https://public.tableau.com/app/profile/octave.antoni)) :
+
+![Top Stations for Both Member Types](img/Top_Stations_for_both_Member_Types.png)
+
+The color indicates the average of the ranks of the station for each study group
+and the size of the marker indicates the volume of rides. **Targeting these
+stations is likely to be an efficient strategy**.
+
+
+That's it for our Analysis, we will now Share our findings with our simulated
+stakeholders by creating a Powerpoint presentation displaying our results.
+
 # 5. Share
 
 # 6. Act
+
+
+
 

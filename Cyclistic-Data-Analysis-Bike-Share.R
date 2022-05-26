@@ -20,17 +20,6 @@ trips = tbl(con,"trips")
 glimpse(trips)
 
 
-# member_summary <- 
-#   trips %>%
-#   group_by(member_casual) %>%
-#   summarise(
-#     average_length=mean(length_min, na.rm = TRUE),
-#     min_length=min(length_min, na.rm = TRUE),
-#     max_length=max(length_min, na.rm = TRUE),
-#     average_distance=mean(distance_m, na.rm = TRUE),
-#     max_distance=max(distance_m, na.rm = TRUE),
-#     min_distance=min(distance_m, na.rm = TRUE))%>% 
-#   collect() 
 
 #Downloading Length information from Bigquery and creating Month_Year Column
 #The collect() is required to pull data from Bigquery and store it locally
@@ -40,6 +29,27 @@ length_info <-
   collect() %>% 
   mutate(month_year = factor(format(started_at, "%b-%y"), levels = 
            c("May-21","Jun-21","Jul-21","Aug-21","Sep-21","Oct-21","Nov-21","Dec-21","Jan-22","Feb-22","Mar-22","Apr-22")))
+
+length_info <-
+  length_info %>% 
+  mutate(Date = date(started_at))
+         
+#Calculate the number of rides per user type
+
+length_info %>% 
+  group_by(month_year,member_casual) %>% 
+  summarize(rides=n()) %>% 
+  ggplot(aes(x=month_year,y=rides,group=member_casual,color=member_casual)) + geom_point(size=2) + geom_line(size=1.5) + 
+  labs(color="Member Type", x="Month-Year", y="Number of Rides") + scale_y_continuous(labels = scales::comma) 
+length_info %>% 
+  group_by(Date,member_casual) %>% 
+  summarize(rides=n()) %>% 
+  ggplot(aes(x=Date,y=rides,group=member_casual,color=member_casual)) + geom_point() %>% 
+  labs(color="Member Type", x="Date", y="Number of Rides") + scale_y_continuous(labels = scales::comma)+ 
+  geom_smooth() + scale_x_date(date_labels="%b-%y",date_breaks  ="1 month",expand = c(0,0))+
+  ggtitle("Rides per day for each Member Type") 
+
+
 
 # Creating Length Per Month graph
 length_info %>% 
@@ -72,7 +82,7 @@ distance_info <-
 
 #Creating distance per month graph
 distance_info %>% 
-  filter(distance_m > 0) %>% 
+  filter(distance_m >= 0) %>% 
   group_by(month_year,member_casual) %>% 
   summarise(average_dist = mean(distance_m)) %>% 
   ggplot() + geom_col(aes(x=month_year,y=average_dist,fill=member_casual),position = 'dodge') + 
@@ -147,13 +157,10 @@ station_db %>%
 
 station_heatmap <-
   trips %>% 
-  select(member_casual,started_at,start_station_name,start_station_id,rideable_type,start_loc_text) %>% 
+  select(member_casual,start_station_id) %>% 
   filter(!is.na(start_station_name)) %>% 
   filter(!is.na(start_loc_text)) %>%
   collect () %>% 
-  rowwise() %>% 
-  mutate(Latitude = as.numeric(str_split(start_loc_text,",")[[1]][1]),
-         Longitude = as.numeric(str_split(start_loc_text,",")[[1]][2])) %>% 
   mutate(month_year = factor(format(started_at, "%b-%y"), levels = 
                                c("May-21","Jun-21","Jul-21","Aug-21","Sep-21","Oct-21","Nov-21","Dec-21","Jan-22","Feb-22","Mar-22","Apr-22")))
 
@@ -176,11 +183,11 @@ WHERE TRUE;
 station_info <- tbl(con,"station_info") %>% collect()
 
 
-  heatmap_export <-
-    station_heatmap %>% 
-      select(member_casual,start_station_id, month_year) %>% 
-      group_by (member_casual,start_station_id,month_year) %>% 
-      summarize(rides = n())
+heatmap_export <-
+  station_heatmap %>% 
+    select(member_casual,start_station_id, month_year) %>% 
+    group_by (member_casual,start_station_id,month_year) %>% 
+    summarize(rides = n())
 
 heatmap_final <-
   heatmap_export %>%
@@ -190,3 +197,30 @@ heatmap_final <-
 #Now we can download this table as a CSV for easy import into Tableau
 
 write.csv(heatmap_final,"heatmap_final.csv")
+
+#We now want to find the top 20 stations each month for each category
+ranked_heatmap <-
+  heatmap_final %>% 
+  arrange(`Member type`, month_year, desc(rides)) %>% 
+  group_by(`Member type`, month_year) %>% 
+  mutate(rank = rank(-rides)) %>% 
+  filter(rank<=20) 
+
+#Stations in the top 30 for both categories
+
+ranked_heatmap <-
+  heatmap_final %>% 
+#filter(month_year!="Jun-21" & month_year!= "Jul-21" & month_year!= "Aug-21")%>% 
+  group_by(`Member type`,station_id) %>% 
+  summarise(rides = sum(rides)) %>% 
+  arrange(`Member type`, desc(rides)) %>% 
+  group_by(`Member type`) %>% 
+  mutate(rank = rank(-rides)) %>% 
+  filter(rank<=30) %>% 
+  group_by(station_id) %>% 
+  filter(n()>1) %>% 
+  summarise(total_rides = sum(rides), average_rank = mean(rank)) %>% 
+  left_join(station_info,by="station_id") %>% 
+  arrange(average_rank)
+
+write.csv(ranked_heatmap,"ranked_heatmap.csv")

@@ -2,3 +2,5 @@
 .RData
 .Rhistory
 Cyclistic-Data-Analysis-Bike-Share.Rproj
+.RData
+station_heatmap.csv
