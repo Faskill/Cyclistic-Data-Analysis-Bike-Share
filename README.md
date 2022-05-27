@@ -1348,7 +1348,7 @@ data is publicly available on my profile
 (https://public.tableau.com/app/profile/octave.antoni), but I extracted the most
 relevant information so they can be directly browsed :
 
-![Map of Cyclistic Rides Per Member Type](img/Map_of_Cyclistic_Rides_Per_Member_Type.png)
+![Map of Cyclistic Rides Per Member Type](img/Map_of_Cyclistic_Rides_per_Member_Type.png)
 
 We can see that the traffic is mostly concentrated around the Downtown and Hyde
 Park areas. Let's zoom into those areas :
@@ -1436,7 +1436,7 @@ I have created a **draft presentation** aimed at high level executives in order
 to present the results of this case study. [Link to the presentation](Cyclistic_Data_Analysis_Presentation.pptx)
 
 A more technical version of this presentation could also be produced if the
-results of the study were to be presented to fellow data analyts or a more
+results of the study were to be presented to fellow data analyts or to a more
 technical audience.
 
 # 6. Act
