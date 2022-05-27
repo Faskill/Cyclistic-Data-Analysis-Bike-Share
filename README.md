@@ -2,16 +2,7 @@ Cyclistic Case Study - Bike Sharing Company
 ================
 Octave Antoni
 
-2022-05-11
-
--   [Introduction](#introduction)
--   [Ask](#1.ask)
--   [Prepare](#2.prepare)
--   [Process](#3.process)
--   [Analyze](#4.analyze)
--   [Share](#5.share)
--   [Act](#6.act)
-
+Last updated : May 27th, 2022
 
 # Introduction
 Employed as a Data Analyst since February 2019 in the government,
@@ -35,11 +26,11 @@ Here are the deliverables that I have been tasked to produce :
 This case study will follow the 6-step data analysis process defined in the 
 Google Data Analytics Course :
 
--   [Ask](#1.ask)
--   [Prepare](#2.prepare)
--   [Process](#3.process)
--   [Analyze](#4.analyze)
--   [Share](#5.share)
+-   [Ask](#1-ask)
+-   [Prepare](#2-prepare)
+-   [Process](#3-process)
+-   [Analyze](#4-analyze)
+-   [Share](#5-share)
 -   [Act](#6-act)
 
 Without further ado, let’s get started!
@@ -49,7 +40,7 @@ Without further ado, let’s get started!
 The main goal of this phase is to gather all the required information
 in order to define a clear business task.
 
-### What is the problem I am trying to solve?
+### 1.1 What is the problem I am trying to solve?
 
 Cyclistic has set in place a very flexible pricing plan including single-ride
 passes, full-day passes and annual memberships.
@@ -62,28 +53,28 @@ The end goal is thus to convert casual riders into annual members.
 The main problem I am trying to solve is that Cyclistic needs to understand
 how to target the casual riders in order to convert them into annual members.
 
-### How can my insights drive business decisions?
+### 1.2 How can my insights drive business decisions?
 
 My insight will allow Cyclistic to better understand the habits and
 characteristics of the different types of riders.
 This will allow Cyclistic to use an efficient digital marketing strategy that 
 will aimat influencing casual riders to become annual riders.
 
-### Deliverable : Business Task
+### 1.3 Deliverable : Business Task
 
 **Identify key differences between casual riders and annual members over the
 last 12 months and provide insights on how these differences could be used to
 increase the conversion rate of casual riders.**
 
-# 2. Prepare
+#2. Prepare
 
-### Introducing the data
+### 2.1 Introducing the data
 
 The dataset used for this case study is a "live" dataset (updated monthly) of 
 trips for the Divvy bike sharing company. 
 [Dataset link](https://divvy-tripdata.s3.amazonaws.com/index.html).
 
-#### Dataset Licensing
+#### 2.1.1 Dataset Licensing
 
 The data is produced under the following license : 
 (https://ride.divvybikes.com/data-license-agreement)[https://ride.divvybikes.com/data-license-agreement]
@@ -91,7 +82,7 @@ The data is produced under the following license :
 Contributors willing to use my work will have to comply to the aforementionned
 license agreement.
 
-#### Exploring the data
+#### 2.1.2 Exploring the data
 
 The dataset is composed of zip files containing csv files, with a separate 
 folder for MacOS files. I am asked to study the last 12 months of data, and 
@@ -137,7 +128,7 @@ Thorough cleaning will be necessary! But first, let's merge the last 12 months
 of datasets.
 
 
-### Merging the tables
+### 2.2 Merging the tables
 
 Luckily, all of the 12 latest datasets (as of 11 MAY 2022, I will thus use all
 data from MAY 2021 to APRIL 2022) have the same schema and column names. 
@@ -166,9 +157,9 @@ AS
 The complete dataset has **5757551 rows**. 
 
 
-### Examining the data
+### 2.3 Examining the data
 
-#### Station information
+#### 2.3.1 Station information
 
 Since we realized that a lot of station names were missing during our exploration
 of the data, let's find out how many rows have incomplete station name OR id.
@@ -210,7 +201,7 @@ information and coordinates. That's a good start!
 Let's save this table for further analysis in the Process phase, although it is 
 possible that we will not be able to find matching coordinates.
 
-#### Member type information
+#### 2.3.2 Member type information
 
 Let's see if all rows in our member_casual field are either equal to "member" 
 (annual members) or "casual" (casual riders).
@@ -223,7 +214,7 @@ WHERE member_casual != "member" AND member_casual !="casual";
 
 This returns 0 row. So at least we won't have to clean this field!
 
-#### Start/End date time information
+#### 2.3.3 Start/End date time information
 
 ```SQL
 SELECT COUNT(*)
@@ -305,7 +296,7 @@ WHERE DATETIME_DIFF(ended_at, started_at, SECOND) < 0;
 The result is 140. We will be able to clean these records without impacting our 
 data.
 
-#### Ride id and rideable_type information
+#### 2.3.4 Ride id and rideable_type information
 
 First, let's see what values are in the rideable_type field.
 
@@ -341,7 +332,7 @@ FROM cyclistic.trips;
 This query returns 16/16/1. We've just confirmed that all ride_id values are 
 unique 16 characters strings. 
 
-#### Checking for duplicate information
+#### 2.3.5 Checking for duplicate information
 
 We just verified that all ride_id are unique. But it is possible that ride_ids 
 are automatically generated for each row and that some duplication may exist in
@@ -385,13 +376,13 @@ Turns out that there are in fact **456 duplicate fields**!
 
 ![Duplicate query results](img/duplicate_data.jpg)
 
-#### Summary
+### 2.4 Summary
 
 In the **Prepare** phase, we merged 12 tables and identified which fields have
 errors or missing values. We also identified 456 duplicate rows.
 We will now clean the data during the **Process** phase.
 
-# 3. Process
+#3. Process
 
 The first step of the Process phase is to **backup our database** before we 
 apply any changes. I will create a backup of the database in BigQuery.
@@ -399,9 +390,9 @@ apply any changes. I will create a backup of the database in BigQuery.
 We will then delete dirty data. In a second part, we will try to recover
 missing station information.
 
-### Cleaning dirty data
+### 3.1 Cleaning dirty data
 
-#### Removing Duplicates
+#### 3.1.1 Removing Duplicates
 
 First of all, I will delete from the database duplicate rows outside of ride_id.
 Since the started_at and ended_at are timestamped, I assess that it is
@@ -477,7 +468,7 @@ WHERE ride_id = '79451C756F030041';
 The query is succesful. In total, we removed 457 duplicate rows from our data.
 We then delete the duplicate_info table that we created for cleaning purposes.
 
-#### Removing rows with a ride length <= 0 
+#### 3.1.2 Removing rows with a ride length <= 0 
 
 That is a pretty simple query :
 
@@ -490,9 +481,9 @@ This removes 652 rows from our database. We will not delete ride lengths of over
 24 hours as we have no reason to be sure that this is dirty data. In real life,
 we would have asked stakeholders about these records.
 
-## Cleaning station information
+### 3.2 Cleaning station information
 
-#### Fixing incorrect names
+#### 3.2.1 Fixing incorrect names
 
 We have to run a complex query to retrieve station_ids with mismatched or
 missing names.
@@ -649,7 +640,7 @@ WHERE end_station_id = 'chargingstx1' OR start_station_id = 'chargingstx1';
 This deletes 511 rows from our database. By running the queries looking for 
 duplicate names, we find that they both return 0 rows!
 
-### Retrieving missing information
+### 3.2.2 Retrieving missing information
 
 Let's check if there are station_id with a station_name :
 
@@ -725,7 +716,7 @@ ORDER BY
 Just as before, we save this table as `station_coordinates` and assign the most 
 frequent coordinate to each id. 
 
-#### Deleting records with wrong station IDs
+#### 3.2.3 Deleting records with wrong station IDs
 
 **After looking at databases queries, we realize that some station_ids are in
 fact station names! We need to clear up those results as well!**
@@ -745,7 +736,7 @@ DELETE FROM cyclistic.trips
 WHERE start_station_id LIKE '% %' OR end_station_id LIKE '% %';
 ```
 
-#### Generating a station_info table with all the information on each station
+#### 3.2.4 Generating a station_info table with all the information on each station
 
 Now we can generate again our `station_coordinates` database using the same 
 query as before. We use the concat function here to make sure that this database 
@@ -837,7 +828,7 @@ WHERE station_id IS NULL OR station_name IS NULL OR station_loc IS NULL or stati
 Returns 0! Now we can use this table to try to fill the fields with valid
 coordinates but no station_id and station_name information.
 
-### Filling missing station information
+### 3.3 Filling missing station information
 
 My strategy for this task is the following :
 
@@ -849,7 +840,7 @@ of the coordinates in the trips database with the station_loc_text field.
 		and validate the match based on the closest distance if it is within 50m.
 
 
-#### Perfect matches
+#### 3.3.1 Perfect matches
 
 Let's count the number of perfect matches. Since we didn't aggregate location
 data in the `trips` database, we have to use CONCAT to match it to our
@@ -955,7 +946,7 @@ WHERE A.ride_id = D.ride_id;
 Now that we updated perfect matches, but we still have **948616** rows with 
 missing station information and valid coordinates.
 
-#### Partial coordinate matches
+#### 3.3.2 Partial coordinate matches
 
 The best way to do that would be to base our results on the following table :
 
@@ -989,7 +980,7 @@ ON
  travelled from start to finish stations, and another with the trip length in 
  minutes.
 
-### Creating length_min and distance_m fields
+### 3.4 Creating length_min and distance_m fields
 
 First let's back up our database. Then we will run the following queries :
 
@@ -1117,7 +1108,7 @@ length_info %>%
 We get the following chart, that was produced by removing trip lengths of
 over 24 hours : 
 
- ![Length per month chart](img/Length_per_month.jpeg)
+![Length per month chart](img/Length_per_month.jpeg)
 
  It is clear that Casual members ride much longer than annual members. The peak
  seems to be in Spring, although analysis of several years would be needed to 
@@ -1200,6 +1191,10 @@ distance_info %>%
 Here are our results : 
 
  ![Bike type used per user type](img/Bike_types_undocked.jpeg)
+
+To gain some time and get a cleaner chart, we will use Excel to display it :
+
+![Bike type used per user type](img/Bike_type_pie_excel.jpg)
 
 It appears that **Casual members use electric bikes for more than 50 percent of
 their usage**.
@@ -1437,7 +1432,27 @@ stakeholders by creating a Powerpoint presentation displaying our results.
 
 # 5. Share
 
+I have created a **draft presentation** aimed at high level executives in order
+to present the results of this case study. [Link to the presentation](Cyclistic_Data_Analysis_Presentation.pptx)
+
+A more technical version of this presentation could also be produced if the
+results of the study were to be presented to fellow data analyts or a more
+technical audience.
+
 # 6. Act
+
+Based on the aforementionned presentation, here are my recommendations :
+
+-  Target top stations  for both user groups in order to select casual members 
+likely to be Chicagoans. 
+
+-  Avoid focusing too much marketing efforts on the summer months due to the 
+presence of tourists. Spring seem to be the best conversion period due to the
+ high ride number / tourist ratio.
+
+-  Outline the advantages of electric bikes and the possibility of doing long 
+rides in the marketing strategy.
+
 
 
 
