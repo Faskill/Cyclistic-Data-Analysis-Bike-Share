@@ -1194,7 +1194,7 @@ Here are our results :
 
 To gain some time and get a cleaner chart, we will use Excel to display it :
 
-![Bike type used per user type](img/Bike_type_pie_excel.jpg)
+![Bike type used per user type](img/Bike_type_pie_excel.JPG)
 
 It appears that **Casual members use electric bikes for more than 50 percent of
 their usage**.
