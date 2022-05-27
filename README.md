@@ -66,7 +66,7 @@ will aimat influencing casual riders to become annual riders.
 last 12 months and provide insights on how these differences could be used to
 increase the conversion rate of casual riders.**
 
-#2. Prepare
+# 2. Prepare
 
 ### 2.1 Introducing the data
 
@@ -382,7 +382,7 @@ In the **Prepare** phase, we merged 12 tables and identified which fields have
 errors or missing values. We also identified 456 duplicate rows.
 We will now clean the data during the **Process** phase.
 
-#3. Process
+# 3. Process
 
 The first step of the Process phase is to **backup our database** before we 
 apply any changes. I will create a backup of the database in BigQuery.
