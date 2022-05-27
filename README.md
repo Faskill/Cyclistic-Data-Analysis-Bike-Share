@@ -77,7 +77,7 @@ trips for the Divvy bike sharing company.
 #### 2.1.1 Dataset Licensing
 
 The data is produced under the following license : 
-(https://ride.divvybikes.com/data-license-agreement)[https://ride.divvybikes.com/data-license-agreement]
+[Divvy data license agreement](https://ride.divvybikes.com/data-license-agreement)
 
 Contributors willing to use my work will have to comply to the aforementionned
 license agreement.
@@ -96,11 +96,11 @@ I will import those datasets in BigQuery in order to be able to run interactive
 SQL queries and merge all of these records. Here is a my dataset structure
 after importing the 12 tables into BigQuery.
 
-![Dataset structure](img/dataset.jpg)
+![Dataset structure](img/dataset.JPG)
 
 Here is the schema of each table :
 
-![Schema](img/dataset_schema.jpg)
+![Schema](img/dataset_schema.JPG)
 
 A quick look at the first 10 rows of data shows that the dataset is dirty.
 **None of the first 10 rows of the May 21 dataset is complete.**
@@ -374,7 +374,7 @@ HAVING COUNT(*) > 1;
 This query checks for duplicate values outside of the ride_id field.
 Turns out that there are in fact **456 duplicate fields**!
 
-![Duplicate query results](img/duplicate_data.jpg)
+![Duplicate query results](img/duplicate_data.JPG)
 
 ### 2.4 Summary
 
